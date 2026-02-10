@@ -33,20 +33,24 @@ async function initDB() {
 initDB();
 // ================ ၃။ Database Helper Functions ================
 
+// ================ ၃။ Database Helper Functions ================
+
 async function updateUserBalance(userId, amount) {
-    await usersCol.updateOne({ telegram_id: userId }, { $inc: { balance: amount } });
+    if (!usersCol) return;
+    await usersCol.updateOne({ telegram_id: userId.toString() }, { $inc: { balance: amount } });
 }
 
 async function getUserBalance(userId) {
-    const user = await usersCol.findOne({ telegram_id: userId });
+    if (!usersCol) return 0;
+    const user = await usersCol.findOne({ telegram_id: userId.toString() });
     return user ? user.balance : 0;
 }
 
 async function checkBan(userId) {
-    const user = await usersCol.findOne({ telegram_id: userId });
+    if (!usersCol) return false;
+    const user = await usersCol.findOne({ telegram_id: userId.toString() });
     return user ? user.is_banned : false;
 }
-
 // ================ ၄။ Services List (မပြင်ရ) ================
 
 const SERVICES = {
@@ -105,7 +109,7 @@ bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, asyn
     const userId = chatId.toString();
     
     await usersCol.updateOne(
-        { telegram_id: userId },
+        { telegram_id: userId.toString() },
         { $set: { username: msg.from.first_name }, $setOnInsert: { balance: 0, is_banned: false } },
         { upsert: true }
     );
@@ -114,8 +118,9 @@ bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, asyn
     
     bot.sendMessage(
         chatId,
-        `*LuLu Social Boost* မှ ကြိုဆိုပါတယ်ဗျာ။ ✨\n\n` +
-        `✅ ငွေဖြည့်ခြင်း၊ ဝန်ဆောင်မှုများတောင်းခံခြင်းကို ဒီ Bot မှတစ်ဆင့် လုပ်ဆောင်နိုင်ပါပြီ။`,
+        `*LuLu Social Boost* မှ ကြိုဆိုပါတယ်ဗျာ။ ✨\n\n\n` +
+        `✅ ငွေဖြည့်ခြင်း၊ ဝန်ဆောင်မှုများတောင်းခံခြင်းကို ဒီ Bot မှတစ်ဆင့် လုပ်ဆောင်နိုင်ပါပြီ။`
+        `‼️အခက်အခဲများရှိပါက @Rowan_Elliss ကိုစာပို့ပေးပါခင်ဗျာ‼️`,
         { 
             parse_mode: 'Markdown',
             ...mainKeyboard 
@@ -268,23 +273,19 @@ bot.on('photo', async (msg) => {
     }
 });
 
-// ================ ၁၁။ Message Handling (ပိုကောင်းအောင်ပြင်ထား) ================
+
 
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
-    const userId = chatId.toString(); // ID ကို string ပြောင်းရန်
+    const userId = chatId.toString(); 
     const text = msg.text;
     const state = userStates.get(chatId);
 
-    if (!text || text.startsWith('/')) return;
-
-    // --- Ban စစ်ဆေးသည့်အပိုင်း ---
     const isBanned = await checkBan(userId);
     if (isBanned) {
         return bot.sendMessage(chatId, "🚫 သင်သည် ဝန်ဆောင်မှုအသုံးပြုခွင့် ပိတ်ပင် (Ban) ခံထားရပါသည်။");
     }
-    // -------------------------
-    // Payment flow
+  
     if (state) {
         if (state.step === 'WAITING_TXID') {
             if (text.length !== 4 || isNaN(text)) {
@@ -660,7 +661,6 @@ bot.on('callback_query', async (query) => {
             return await bot.answerCallbackQuery(query.id);
         }
 
-        // Order cancellation
         if (data === 'order_cancel') {
             userStates.delete(chatId);
             
