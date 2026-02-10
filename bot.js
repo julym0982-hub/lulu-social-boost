@@ -16,7 +16,7 @@ const CONFIG = {
     MONGO_URL: process.env.MONGO_URL
 };
 
-const bot = new TelegramBot(CONFIG.TOKEN, { polling: true });
+const bot = new TelegramBot(CONFIG.TOKEN, { polling: false });
 let usersCol;
 const userStates = new Map();
 
@@ -26,11 +26,15 @@ async function initDB() {
         await client.connect();
         usersCol = client.db('lulu_social_boost').collection('users');
         console.log("MongoDB ချိတ်ဆက်မှု အောင်မြင်သည်! ✅");
+
+        // Bot ကို စတင်အသက်သွင်းခြင်း
+        bot.startPolling(); 
+        console.log("Bot Polling Started... 🚀");
     } catch (e) {
         console.error("DB ချိတ်ဆက်မှု မှားယွင်းနေသည်: ", e);
+        process.exit(1);
     }
 }
-initDB();
 // ================ ၃။ Database Helper Functions ================
 
 // ================ ၃။ Database Helper Functions ================
@@ -735,12 +739,19 @@ console.log("✅ Admin ID: " + CONFIG.ADMIN_ID);
 console.log("✅ Exchange Rate: " + CONFIG.EXCHANGE_RATE + " MMK/USD");
 console.log("✅ Services Available: " + Object.keys(SERVICES).length);
 console.log("========================================");
-// ================ ၁၅။ Render အတွက် Port ဖွင့်ပေးခြင်း ================
-
 // ================ ၁၅။ Render Port Binding (Fix) ================
 
-const PORT = process.env.PORT || 10000; // Render က များသောအားဖြင့် 10000 ကိုသုံးပါတယ်
+const PORT = process.env.PORT || 10000;
 
-express().get('/', (req, res) => res.send('Bot is Live! 🚀')).listen(PORT, () => {
+const app = express();
+
+app.get('/', (req, res) => {
+    res.send('Bot is Live! 🚀');
+});
+
+app.listen(PORT, async () => {
     console.log(`Render Port Binding Successful on port ${PORT} ✅`);
+    
+    // ဒီနေရာမှာ ခေါ်ပေးရမှာပါ
+    await initDB(); 
 });
