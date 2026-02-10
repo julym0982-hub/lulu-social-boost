@@ -705,18 +705,10 @@ console.log("✅ Services Available: " + Object.keys(SERVICES).length);
 console.log("========================================");
 // ================ ၁၅။ Render အတွက် Port ဖွင့်ပေးခြင်း ================
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+// ================ ၁၅။ Render Port Binding (Fix) ================
 
-app.get('/', (req, res) => {
-    res.send('Bot is running online! 🤖✅');
-});
+const PORT = process.env.PORT || 10000; // Render က များသောအားဖြင့် 10000 ကိုသုံးပါတယ်
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+express().get('/', (req, res) => res.send('Bot is Live! 🚀')).listen(PORT, () => {
+    console.log(`Render Port Binding Successful on port ${PORT} ✅`);
 });
-const http = require('http');
-http.createServer((req, res) => {
-    res.write('Bot is running!');
-    res.end();
-}).listen(process.env.PORT || 3000);
