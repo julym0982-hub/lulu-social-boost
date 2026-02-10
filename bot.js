@@ -118,8 +118,8 @@ bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, asyn
     
     bot.sendMessage(
         chatId,
-        `*LuLu Social Boost* မှ ကြိုဆိုပါတယ်ဗျာ။ ✨\n\n\n` +
-        `✅ ငွေဖြည့်ခြင်း၊ ဝန်ဆောင်မှုများတောင်းခံခြင်းကို ဒီ Bot မှတစ်ဆင့် လုပ်ဆောင်နိုင်ပါပြီ။`
+        `*LuLu Social Boost* မှ ကြိုဆိုပါတယ်ဗျာ။ ✨\n\n` +
+        `✅ ငွေဖြည့်ခြင်း၊ ဝန်ဆောင်မှုများတောင်းခံခြင်းကို ဒီ Bot မှတစ်ဆင့် လုပ်ဆောင်နိုင်ပါပြီ။\n` +
         `‼️အခက်အခဲများရှိပါက @Rowan_Elliss ကိုစာပို့ပေးပါခင်ဗျာ‼️`,
         { 
             parse_mode: 'Markdown',
@@ -194,7 +194,39 @@ bot.onText(/\/(approve|addfund|deduct|ban|unban) (\d+)(?: (\d+))?/, async (msg, 
         bot.sendMessage(CONFIG.ADMIN_ID, `✅ User ${targetId} Unbanned!`);
     }
 });
+// ================ Admin: User Count & Statistics ================
+bot.onText(/\/stats/, async (msg) => {
+    const chatId = String(msg.chat.id);
+    const adminId = String(CONFIG.ADMIN_ID);
 
+    // Admin ဟုတ်မဟုတ် စစ်ဆေးခြင်း
+    if (chatId !== adminId) {
+        console.log(`Unauthorized access from ID: ${chatId}`);
+        return; 
+    }
+
+    try {
+        if (!usersCol) {
+            return bot.sendMessage(chatId, "🗄 Database ချိတ်ဆက်မှု မရှိသေးပါ။ MONGO_URL ကို ပြန်စစ်ပါ။");
+        }
+
+        const userCount = await usersCol.countDocuments();
+        const allUsers = await usersCol.find({}).toArray();
+        const totalMMK = allUsers.reduce((sum, user) => sum + (user.balance || 0), 0);
+
+        const statsMessage = `
+📊 *LuluBoost Statistics*
+
+👥 စုစုပေါင်း User: *${userCount}* ယောက်
+💰 စုစုပေါင်း Balance: *${totalMMK.toLocaleString()} MMK*
+💵 ဒေါ်လာတန်ဖိုး: *${(totalMMK / CONFIG.EXCHANGE_RATE).toFixed(2)} $*
+`;
+        bot.sendMessage(chatId, statsMessage, { parse_mode: 'Markdown' });
+    } catch (error) {
+        console.error('Stats error:', error);
+        bot.sendMessage(chatId, "❌ အချက်အလက်ယူရာတွင် Error တက်နေပါသည်။");
+    }
+});
 // ================ ၈။ Balance Check ================
 
 bot.onText(/💰 လက်ကျန်ငွေစစ်ရန်/, async (msg) => {
