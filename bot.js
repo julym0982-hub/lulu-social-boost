@@ -1,3 +1,5 @@
+require('dotenv').config(); // အပေါ်ဆုံးမှာ ဒါလေး အရင်ထည့်ပါ
+
 const TelegramBot = require('node-telegram-bot-api');
 const { MongoClient } = require('mongodb'); 
 const axios = require('axios');
@@ -6,12 +8,12 @@ const express = require('express');
 // ================ ၁။ ပြင်ဆင်ရန် လိုအပ်ချက်များ ================
 
 const CONFIG = {
-    TOKEN: '8330406067:AAHGxAdIZmj-ou1iu8rfVabtbbmmLC_oKvg',
-    ADMIN_ID: '7072739469',
+    TOKEN: process.env.BOT_TOKEN,
+    ADMIN_ID: process.env.ADMIN_ID,
     EXCHANGE_RATE: 4500,
     API_URL: 'https://brothersmm.com/api',
-    API_KEY: '72dd1d7b0ade683680631a027ff813d0a7d11b01',
-    MONGO_URL: "mongodb+srv://paingzinsoe:AGLMG7iArSBqPLdt@cluster0.dzaellc.mongodb.net/lulu_db?retryWrites=true&w=majority"
+    API_KEY: process.env.API_KEY,
+    MONGO_URL: process.env.MONGO_URL
 };
 
 const bot = new TelegramBot(CONFIG.TOKEN, { polling: true });
@@ -701,3 +703,20 @@ console.log("✅ Admin ID: " + CONFIG.ADMIN_ID);
 console.log("✅ Exchange Rate: " + CONFIG.EXCHANGE_RATE + " MMK/USD");
 console.log("✅ Services Available: " + Object.keys(SERVICES).length);
 console.log("========================================");
+// ================ ၁၅။ Render အတွက် Port ဖွင့်ပေးခြင်း ================
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('Bot is running online! 🤖✅');
+});
+
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
+const http = require('http');
+http.createServer((req, res) => {
+    res.write('Bot is running!');
+    res.end();
+}).listen(process.env.PORT || 3000);
