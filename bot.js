@@ -25,10 +25,15 @@ const CONFIG = {
 
 // -------------------- EXPRESS HEALTH CHECK --------------------
 const app = express();
-const PORT = process.env.PORT || 8000;
-app.get('/', (req, res) => res.send('✅ LuLu Social Boost Bot is running!'));
-app.listen(PORT, () => console.log(`📡 Health check server on port ${PORT}`));
+// IMPORTANT: Use the PORT environment variable Render provides
+const PORT = process.env.PORT || 10000; 
 
+app.get('/', (req, res) => {
+    res.send('✅ LuLu Social Boost Bot is running!');
+});
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`📡 Health check server listening on port ${PORT}`);
+});
 // -------------------- DATABASE SCHEMAS --------------------
 mongoose.connect(CONFIG.MONGO_URL)
     .then(() => console.log('✅ MongoDB connected'))
