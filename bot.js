@@ -1,116 +1,191 @@
-// ==========================================
-// LuLu Social Boost - Fully Optimized Version
-// ==========================================
+// ============================================
+// LuLu Social Boost - Complete Telegram Reseller Bot
+// FIXED: API endpoint, Cloudflare bypass, button handlers
+// ============================================
 
+require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
 const mongoose = require('mongoose');
+const axios = require('axios');
 const express = require('express');
+const qs = require('querystring'); // for form-urlencoded
 
-// ================ ၁။ RENDER PORT SETUP ================
-const app = express();
-const PORT = process.env.PORT || 8000;
-
-app.get('/', (req, res) => {
-    res.send('Bot is running live and healthy!');
-});
-
-app.listen(PORT, () => {
-    console.log(`✅ Server is running on port ${PORT}`);
-});
-
-// ================ ၂။ CONFIGURATION ================
+// -------------------- CONFIGURATION --------------------
 const CONFIG = {
-    TOKEN: '8330406067:AAHGxAdIZmj-ou1iu8rfVabtbbmmLC_oKvg',
-    ADMIN_ID: 7072739469, 
+    BOT_TOKEN: process.env.BOT_TOKEN,
+    ADMIN_ID: parseInt(process.env.ADMIN_ID),
     OWNER_USERNAME: 'Rowan_Elliss',
-    
-    API_URL: 'https://www.brothersmm.com/api',
-    API_KEY: '72dd1d7b0ade683680631a027ff813d0a7d11b01',
-    
-    MONGO_URL: 'mongodb+srv://paingzinsoe:AGLMG7iArSBqPLdt@cluster0.dzaellc.mongodb.net/lulu_social_boost?retryWrites=true&w=majority',
-    
-    EXCHANGE_RATE: 4500,
-    SPAM_COOLDOWN: 2000,
+    API_URL: 'https://www.brothersmm.com/api', // ✅ added www
+    API_KEY: process.env.API_KEY,
+    MONGO_URL: process.env.MONGO_URL,
+    EXCHANGE_RATE: 4500,          // 1 USD = 4500 MMK
+    SPAM_COOLDOWN: 2000,          // 2 seconds
+    MIN_TOPUP_AMOUNT: 4500,       // 1 USD minimum
 };
 
-// ================ ၃။ DATABASE CONNECTION ================
+// -------------------- EXPRESS HEALTH CHECK --------------------
+const app = express();
+const PORT = process.env.PORT || 8000;
+app.get('/', (req, res) => res.send('✅ LuLu Social Boost Bot is running!'));
+app.listen(PORT, () => console.log(`📡 Health check server on port ${PORT}`));
+
+// -------------------- DATABASE SCHEMAS --------------------
 mongoose.connect(CONFIG.MONGO_URL)
-    .then(() => console.log('✅ Connected to MongoDB'))
-    .catch(err => console.error('❌ MongoDB Connection Error:', err));
+    .then(() => console.log('✅ MongoDB connected'))
+    .catch(err => console.error('❌ MongoDB error:', err));
 
 const userSchema = new mongoose.Schema({
     telegramId: { type: Number, required: true, unique: true },
     username: String,
     firstName: String,
-    balance: { type: Number, default: 0 },
+    balance: { type: Number, default: 0 },        // in MMK
     isBanned: { type: Boolean, default: false },
-    totalSpent: { type: Number, default: 0 }
+    totalSpent: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
 });
 
 const orderSchema = new mongoose.Schema({
-    orderId: String,
+    orderId: { type: String, required: true, unique: true }, // from SMM API
     telegramId: Number,
+    serviceId: String,
     serviceName: String,
     link: String,
     quantity: Number,
+    costUSD: Number,
     costMMK: Number,
-    status: { type: String, default: 'Pending' },
-    timestamp: { type: Date, default: Date.now }
+    status: { type: String, default: 'Pending' }, // Pending, InProgress, Completed, Cancelled, Partial
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: Date
+});
+
+const topupSchema = new mongoose.Schema({
+    userId: Number,
+    username: String,
+    amountMMK: Number,
+    screenshotFileId: String,
+    transactionId: String,
+    status: { type: String, default: 'Pending' }, // Pending, Approved, Rejected
+    adminMessageId: Number,                        // message ID in admin chat
+    createdAt: { type: Date, default: Date.now }
 });
 
 const User = mongoose.model('User', userSchema);
 const Order = mongoose.model('Order', orderSchema);
+const Topup = mongoose.model('Topup', topupSchema);
 
-// ================ ၄။ SERVICES LIST ================
+// -------------------- SERVICE CATALOG (FROM YOUR PROVIDER) --------------------
 const SERVICES = {
-    'tt_likes': { id: 87129, name: "TikTok Likes [HQ]", price: 0.2237, min: 10, time: "20 mins", regex: /tiktok\.com/ },
-    'tt_views': { id: 87132, name: "TikTok Views", price: 0.0078, min: 100, time: "11 mins", regex: /tiktok\.com/ },
-    'tt_shares': { id: 87089, name: "TikTok Shares", price: 0.0848, min: 10, time: "12 mins", regex: /tiktok\.com/ },
-    'tt_saves': { id: 7090, name: "TikTok Saves", price: 0.015, min: 10, time: "26 mins", regex: /tiktok\.com/ },
-    'tt_foll': { id: 87117, name: "TikTok Followers", price: 0.9188, min: 50, time: "30 mins", regex: /tiktok\.com/ },
-    
-    'fb_foll': { id: 86930, name: "FB Page/Profile Followers", price: 0.4298, min: 100, time: "31 mins", regex: /facebook\.com|fb\.watch/ },
-    'fb_likes': { id: 87072, name: "FB Post Likes", price: 0.264, min: 10, time: "27 mins", regex: /facebook\.com|fb\.watch/ },
-    'fb_love': { id: 86458, name: "FB Love ❤️", price: 0.1689, min: 10, time: "40 mins", regex: /facebook\.com/ },
-    'fb_care': { id: 86459, name: "FB Care 🤗", price: 0.1689, min: 10, time: "28 mins", regex: /facebook\.com/ },
-    'fb_haha': { id: 86461, name: "FB Haha 😂", price: 0.6457, min: 10, time: "Pending", regex: /facebook\.com/ },
-    'fb_wow': { id: 86460, name: "FB Wow 😲", price: 0.6457, min: 10, time: "6 hours", regex: /facebook\.com/ },
-    'fb_sad': { id: 86462, name: "FB Sad 😥", price: 0.6457, min: 10, time: "1 hour", regex: /facebook\.com/ },
-    'fb_angry': { id: 86463, name: "FB Angry 🤬", price: 0.6457, min: 10, time: "47 mins", regex: /facebook\.com/ },
-
-    'yt_subs': { id: 86560, name: "YouTube Subscribers", price: 22.7526, min: 100, time: "74 hours", regex: /youtube\.com|youtu\.be/ },
-    'yt_views': { id: 86562, name: "YouTube Views HQ", price: 1.8732, min: 100, time: "5 hours", regex: /youtube\.com|youtu\.be/ },
-
-    'tg_views': { id: 86620, name: "Telegram Post View", price: 0.0499, min: 10, time: "14 mins", regex: /t\.me/ },
-    'tg_mem': { id: 86629, name: "Telegram Members", price: 0.948, min: 10, time: "31 mins", regex: /t\.me/ }
+    // TikTok
+    'tt_likes':   { id: 87129, name: "TikTok Likes [HQ]", price: 0.2237, min: 10, max: 100000, time: "20 mins", regex: /tiktok\.com/, platform: 'tt' },
+    'tt_views':   { id: 87132, name: "TikTok Views", price: 0.0078, min: 100, max: 500000000, time: "11 mins", regex: /tiktok\.com/, platform: 'tt' },
+    'tt_shares':  { id: 87089, name: "TikTok Video Shares", price: 0.0848, min: 10, max: 10000000, time: "12 mins", regex: /tiktok\.com/, platform: 'tt' },
+    'tt_saves':   { id: 7090, name: "TikTok Saves", price: 0.015, min: 10, max: 2147482647, time: "26 mins", regex: /tiktok\.com/, platform: 'tt' },
+    'tt_foll':    { id: 87117, name: "TikTok Followers", price: 0.9188, min: 50, max: 100000, time: "30 mins", regex: /tiktok\.com/, platform: 'tt' },
+    // Facebook
+    'fb_foll':    { id: 86930, name: "FB Page/Profile Followers", price: 0.4298, min: 100, max: 100000, time: "31 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    'fb_likes':   { id: 87072, name: "FB Post Likes", price: 0.264, min: 10, max: 1000000, time: "27 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    'fb_love':    { id: 86458, name: "FB Love ❤️", price: 0.1689, min: 10, max: 100000, time: "40 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    'fb_care':    { id: 86459, name: "FB Care 🤗", price: 0.1689, min: 10, max: 100000, time: "28 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    'fb_haha':    { id: 86461, name: "FB Haha 😂", price: 0.6457, min: 10, max: 500000, time: "Pending", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    'fb_wow':     { id: 86460, name: "FB Wow 😲", price: 0.6457, min: 10, max: 500000, time: "6 hrs", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    'fb_sad':     { id: 86462, name: "FB Sad 😥", price: 0.6457, min: 10, max: 500000, time: "1 hr", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    'fb_angry':   { id: 86463, name: "FB Angry 🤬", price: 0.6457, min: 10, max: 500000, time: "47 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
+    // YouTube
+    'yt_subs':    { id: 86560, name: "YouTube Subscribers", price: 22.7526, min: 100, max: 10000, time: "74 hrs", regex: /youtube\.com|youtu\.be/, platform: 'yt' },
+    'yt_views':   { id: 86562, name: "YouTube Views HQ", price: 1.8732, min: 100, max: 10000000, time: "5 hrs", regex: /youtube\.com|youtu\.be/, platform: 'yt' },
+    // Telegram
+    'tg_views':   { id: 86620, name: "Telegram Post View", price: 0.0499, min: 10, max: 2147483647, time: "14 mins", regex: /t\.me/, platform: 'tg' },
+    'tg_mem':     { id: 86629, name: "Telegram Members", price: 0.948, min: 10, max: 100000, time: "31 mins", regex: /t\.me/, platform: 'tg' }
 };
 
-// ================ ၅။ HELPERS ================
-const bot = new TelegramBot(CONFIG.TOKEN, { polling: true });
-const userStates = new Map();
-const spamFilter = new Map();
+// Group services by platform
+const PLATFORM_SERVICES = {
+    tt: ['tt_likes', 'tt_views', 'tt_shares', 'tt_saves', 'tt_foll'],
+    fb: ['fb_foll', 'fb_likes'],
+    yt: ['yt_subs', 'yt_views'],
+    tg: ['tg_views', 'tg_mem']
+};
+const REACTION_SERVICES = ['fb_love', 'fb_care', 'fb_haha', 'fb_wow', 'fb_sad', 'fb_angry'];
 
-// Cloudflare Bypass Headers
+// -------------------- BOT INITIALIZATION --------------------
+const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: true });
+
+// -------------------- STATE & SPAM PROTECTION --------------------
+const userStates = new Map();
+const cooldown = new Map();
+
+function isSpamming(chatId) {
+    const last = cooldown.get(chatId);
+    const now = Date.now();
+    if (last && now - last < CONFIG.SPAM_COOLDOWN) return true;
+    cooldown.set(chatId, now);
+    return false;
+}
+
+// -------------------- HELPER FUNCTIONS --------------------
+async function getUser(telegramId, msg = null) {
+    let user = await User.findOne({ telegramId });
+    if (!user && msg) {
+        user = new User({
+            telegramId,
+            username: msg.from.username,
+            firstName: msg.from.first_name
+        });
+        await user.save();
+    }
+    return user;
+}
+
+// ✅ IMPROVED API CALL – form-urlencoded + realistic headers
 async function callSmmApi(params) {
     try {
+        // Always include API key
         params.key = CONFIG.API_KEY;
-        const response = await axios.post(CONFIG.API_URL, params, {
-            headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
+
+        // Convert to application/x-www-form-urlencoded
+        const formData = qs.stringify(params);
+
+        const response = await axios.post(CONFIG.API_URL, formData, {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Origin': 'https://www.brothersmm.com',
+                'Referer': 'https://www.brothersmm.com/',
+                'Sec-Fetch-Site': 'same-origin',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Dest': 'empty',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             },
-            timeout: 15000
+            timeout: 20000
         });
+
+        console.log('API Response:', response.data); // helpful for debugging
         return response.data;
-    } catch (error) {
-        console.error('API Error:', error.message);
-        return { error: 'API Connection Failed' };
+    } catch (err) {
+        console.error('SMM API Error:', err.response?.status, err.response?.data || err.message);
+        // Return a structured error
+        return { 
+            error: err.response?.data?.error || `API Error (${err.response?.status || 'unknown'})`,
+            details: err.message
+        };
     }
 }
 
-// ================ ၆။ KEYBOARDS ================
-const MainKeyboard = {
+// Calculate cost in MMK (price per 1000)
+function calculateCost(service, quantity) {
+    const usd = (quantity / 1000) * service.price;
+    return Math.ceil(usd * CONFIG.EXCHANGE_RATE);
+}
+
+function isAdmin(telegramId) {
+    return telegramId === CONFIG.ADMIN_ID;
+}
+
+// -------------------- KEYBOARDS --------------------
+const mainMenuKeyboard = {
     reply_markup: {
         keyboard: [
             ['📱 ရရှိနိုင်သော Service များ'],
@@ -121,131 +196,719 @@ const MainKeyboard = {
     }
 };
 
-// ================ ၇။ BOT LOGIC ================
+// -------------------- BOT COMMANDS & MESSAGE HANDLERS --------------------
 
+// ---- /start and back ----
 bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, async (msg) => {
-    const userId = msg.from.id;
-    let user = await User.findOne({ telegramId: userId });
-    if (!user) {
-        user = await User.create({ telegramId: userId, username: msg.from.username, firstName: msg.from.first_name });
-    }
-    userStates.delete(userId);
-    const welcome = `<b>မင်္ဂလာပါ ${user.firstName || 'User'}!</b>\nLuLu Social Boost မှ ကြိုဆိုပါတယ်။ ✨`;
-    bot.sendMessage(userId, welcome, { parse_mode: 'HTML', ...MainKeyboard });
+    if (isSpamming(msg.chat.id)) return;
+    const chatId = msg.chat.id;
+    const user = await getUser(chatId, msg);
+    userStates.delete(chatId);
+    const welcome = `မင်္ဂလာပါ ${user.firstName || 'User'}!\nLuLu Social Boost မှ ကြိုဆိုပါတယ်ဗျာ။ ✨\n\n✅ ငွေဖြည့်ခြင်း၊ ဝန်ဆောင်မှုများတောင်းခံခြင်းကို ဒီ Bot မှတစ်ဆင့် လုပ်ဆောင်နိုင်ပါပြီ။`;
+    bot.sendMessage(chatId, welcome, mainMenuKeyboard);
 });
 
+// ---- Service selection (main menu) ----
 bot.onText(/📱 ရရှိနိုင်သော Service များ/, (msg) => {
-    bot.sendMessage(msg.chat.id, "<b>📌 ဝန်ဆောင်မှုအမျိုးအစား ရွေးချယ်ပါ</b>", {
-        parse_mode: 'HTML',
+    if (isSpamming(msg.chat.id)) return;
+    bot.sendMessage(msg.chat.id, '📌 မည်သည့် Platform အတွက် ဝန်ဆောင်မှု လိုအပ်ပါသလဲ?\n\nအောက်ပါ Platform များမှ ရွေးချယ်နိုင်ပါသည်:', {
         reply_markup: {
             inline_keyboard: [
-                [{ text: '🎬 TikTok', callback_data: 'plat_tt' }, { text: '📘 Facebook', callback_data: 'plat_fb' }],
-                [{ text: '📺 YouTube', callback_data: 'plat_yt' }, { text: '✈️ Telegram', callback_data: 'plat_tg' }]
+                [{ text: '🎬 TikTok', callback_data: 'platform_tt' }, { text: '📘 Facebook', callback_data: 'platform_fb' }],
+                [{ text: '📺 YouTube', callback_data: 'platform_yt' }, { text: '✈️ Telegram', callback_data: 'platform_tg' }]
             ]
         }
     });
 });
 
-bot.on('callback_query', async (query) => {
-    const chatId = query.message.chat.id;
-    const data = query.data;
-
-    if (data.startsWith('plat_')) {
-        let keyboard = [];
-        let type = data.split('_')[1];
-        if (type === 'tt') {
-            keyboard = [[{ text: 'Like ❤️', callback_data: 'svc_tt_likes' }, { text: 'Views 👀', callback_data: 'svc_tt_views' }], [{ text: 'Followers 👤', callback_data: 'svc_tt_foll' }]];
-        } else if (type === 'fb') {
-            keyboard = [[{ text: 'Followers 👤', callback_data: 'svc_fb_foll' }, { text: 'Post Likes 👍', callback_data: 'svc_fb_likes' }]];
-        } else {
-            keyboard = [[{ text: 'Other Services', callback_data: 'plat_tt' }]];
+// ---- Balance check ----
+bot.onText(/💰 လက်ကျန်ငွေစစ်ရန်/, async (msg) => {
+    if (isSpamming(msg.chat.id)) return;
+    const user = await getUser(msg.chat.id);
+    const text = `💰 လက်ကျန်ငွေ: <b>${user.balance.toLocaleString()} MMK</b>`;
+    bot.sendMessage(msg.chat.id, text, {
+        parse_mode: 'HTML',
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '💸 ငွေဖြည့်ရန်', callback_data: 'topup' }]
+            ]
         }
-        bot.editMessageText("<b>အသေးစိတ် ဝန်ဆောင်မှုကို ရွေးချယ်ပါ:</b>", {
-            chat_id: chatId, message_id: query.message.message_id, parse_mode: 'HTML',
-            reply_markup: { inline_keyboard: keyboard }
-        });
+    });
+});
+
+// ---- Top-up entry point (text button) ----
+bot.onText(/💸 ငွေဖြည့်ရန်/, async (msg) => {
+    if (isSpamming(msg.chat.id)) return;
+    await sendTopupInstructions(msg.chat.id);
+});
+
+// ---- FAQ ----
+bot.onText(/Faq⁉️/, (msg) => {
+    if (isSpamming(msg.chat.id)) return;
+    const faq = `⁉️ မကြာခဏမေးလေ့ရှိသော မေးခွန်းများ (FAQ)
+
+၁။ LuLu Social Boost က ဘာတွေလုပ်ပေးတာလဲ?
+ကျွန်တော်တို့ Bot ဟာ Facebook, TikTok, YouTube, Telegram အစရှိတဲ့ Social Media Platform များအတွက် Likes, Views, Followers နှင့် အခြား ဝန်ဆောင်မှုများကို ဈေးနှုန်းချိုသာစွာဖြင့် အလိုအလျောက် တိုးမြှင့်ပေးတဲ့ Bot ဖြစ်ပါတယ်။
+
+၂။ ဝန်ဆောင်မှုတစ်ခုကို ဘယ်လိုမှာယူရမလဲ?
+Menu ထဲရှိ "📱 ရရှိနိုင်သော Service များ" ကို နှိပ်ပါ။
+မိမိအသုံးပြုလိုသော Platform (ဥပမာ - TikTok) ကို ရွေးချယ်ပါ။
+ဝန်ဆောင်မှုအမျိုးအစား (ဥပမာ - Likes) ကို ရွေးချယ်ပါ။
+မှန်ကန်သော Link ကို ပေးပို့ပြီး တိုးမြှင့်လိုသော အရေအတွက် ကို ရိုက်ထည့်ပါ။
+ကုန်ကျငွေကို စစ်ဆေးပြီး "ဆက်သွားရန် ✅" ကို နှိပ်ရုံပါပဲ။
+
+၃။ ငွေကို ဘယ်လိုဖြည့်ရမလဲ?
+"💸 ငွေဖြည့်ရန်" Button ကို နှိပ်ပြီး ဖော်ပြထားသော KBZ Pay သို့မဟုတ် Wave Pay နံပါတ်များသို့ ငွေလွှဲပါ။ ထို့နောက် Screenshot နှင့် Transaction ID ကို Bot ထံ ပေးပို့ရပါမယ်။ Admin မှ အတည်ပြုပြီးသည်နှင့် သင့်အကောင့်ထဲသို့ ငွေရောက်ရှိလာပါမည်။
+
+၄။ Order တင်ပြီးရင် ဘယ်လောက်ကြာမလဲ?
+Service တစ်ခုချင်းစီမှာ ပျှမ်းမျှကြာချိန် (Average Time) ဖော်ပြထားပါတယ်။ များသောအားဖြင့် မိနစ် ၂၀ မှ ၂၄ နာရီအတွင်း အပြီးဆောင်ရွက်ပေးပါတယ်။
+
+၅။ Link မှားပေးမိရင် ဘယ်လိုလုပ်ရမလဲ?
+Order မတင်ခင် Link မှန်/မမှန်ကို Bot က စစ်ဆေးပေးမှာဖြစ်ပါတယ်။ အကယ်၍ Order တင်ပြီးမှ Link မှားနေသည်ဟု သိရှိပါက အမြန်ဆုံး Admin (@${CONFIG.OWNER_USERNAME}) ထံ ဆက်သွယ်ပေးပါ။ (Order စတင်လုပ်ဆောင်နေပြီဆိုပါက ပြန်ဖျက်၍ မရနိုင်ပါ)။
+
+၆။ ငွေလွှဲတဲ့အခါ ဘာတွေသတိထားရမလဲ?
+KBZ Pay Note တွင် Dollar, USDT, Service အစရှိသော စာသားများ လုံးဝ (လုံးဝ) မရေးရပါ။
+Screenshot သည် ရှင်းလင်းပြတ်သားပြီး Transaction ID ပါဝင်ရပါမည်။
+
+💡 အကူအညီလိုအပ်ပါက: အထက်ပါအချက်အလက်များအပြင် အခြားသိလိုသည်များရှိပါက Admin - @${CONFIG.OWNER_USERNAME} ထံ တိုက်ရိုက်မေးမြန်းနိုင်ပါတယ်။`;
+
+    bot.sendMessage(msg.chat.id, faq, {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '🔙 နောက်ပြန်', callback_data: 'back_to_main' }]
+            ]
+        }
+    });
+});
+
+// ---- Order History ----
+bot.onText(/📜 Order History/, async (msg) => {
+    if (isSpamming(msg.chat.id)) return;
+    const chatId = msg.chat.id;
+    const orders = await Order.find({ telegramId: chatId }).sort({ createdAt: -1 }).limit(5);
+    if (orders.length === 0) {
+        return bot.sendMessage(chatId, 'မှတ်တမ်းမရှိသေးပါ။');
     }
 
-    if (data.startsWith('svc_')) {
-        const key = data.replace('svc_', '');
-        const service = SERVICES[key];
-        userStates.set(chatId, { step: 'WAITING_LINK', serviceKey: key });
-        bot.sendMessage(chatId, `<b>📌 ${service.name}</b>\n\n🔗 ကျေးဇူးပြု၍ Link ပေးပို့ပါ။`, { parse_mode: 'HTML' });
-    }
+    let text = '<b>📜 သင်၏ နောက်ဆုံး Order (၅) ခု</b>\n\n';
+    orders.forEach(o => {
+        text += `🆔 <code>${o.orderId}</code> - ${o.serviceName}\n`;
+        text += `📊 ${o.quantity} | 💰 ${o.costMMK} MMK | ${o.status}\n\n`;
+    });
+    text += 'Order ID ရိုက်ထည့်ပါ → အခြေအနေအပြည့်အစုံကြည့်ရန် / ပယ်ဖျက်ရန် (ဆိုင်းငံ့အခြေအနေမှသာ)';
 
-    if (data === 'confirm_order') {
-        const state = userStates.get(chatId);
-        if (!state) return;
-        
-        const user = await User.findOne({ telegramId: chatId });
-        if (user.balance < state.totalCost) return bot.sendMessage(chatId, "⚠️ လက်ကျန်ငွေ မလုံလောက်ပါ။");
+    bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+});
 
-        bot.editMessageText("⏳ Processing...", { chat_id: chatId, message_id: query.message.message_id });
-
-        const apiRes = await callSmmApi({
-            action: 'add', service: SERVICES[state.serviceKey].id, link: state.link, quantity: state.qty
-        });
-
-        if (apiRes.order) {
-            user.balance -= state.totalCost;
-            await user.save();
-            await Order.create({
-                orderId: apiRes.order, telegramId: chatId, serviceName: SERVICES[state.serviceKey].name,
-                link: state.link, quantity: state.qty, costMMK: state.totalCost
-            });
-            bot.sendMessage(chatId, `✅ <b>Order အောင်မြင်သည်!</b>\n🆔 ID: <code>${apiRes.order}</code>\n💰 ကုန်ကျငွေ: ${state.totalCost} MMK`, { parse_mode: 'HTML', ...MainKeyboard });
-        } else {
-            bot.sendMessage(chatId, `❌ Error: ${apiRes.error || 'API Blocked by Provider'}`);
-        }
-        userStates.delete(chatId);
+// ---- Handle Order ID input (for status/cancel) ----
+bot.on('message', async (msg) => {
+    if (msg.text && /^\d+$/.test(msg.text) && msg.text.length >= 5) {
+        const chatId = msg.chat.id;
+        const orderId = msg.text;
+        await handleOrderStatusRequest(chatId, orderId);
     }
 });
 
+async function handleOrderStatusRequest(chatId, orderId) {
+    try {
+        const order = await Order.findOne({ orderId, telegramId: chatId });
+        if (!order) {
+            return bot.sendMessage(chatId, '❌ ဤ Order ID ကို ရှာမတွေ့ပါ။');
+        }
+
+        const apiRes = await callSmmApi({ action: 'status', orderID: orderId });
+        if (apiRes.error) {
+            return bot.sendMessage(chatId, `⚠️ API error: ${apiRes.error}`);
+        }
+
+        let statusText = '', statusEmoji = '';
+        const apiStatus = apiRes.orderStatus || 'Pending';
+        if (apiStatus.includes('Pending')) {
+            statusText = 'လုပ်ဆောင်နေဆဲ ⏳';
+            statusEmoji = '⏳';
+            order.status = 'Pending';
+        } else if (apiStatus.includes('Completed') || apiStatus.includes('Success')) {
+            statusText = 'လုပ်ဆောင်ပြီး ✅';
+            statusEmoji = '✅';
+            order.status = 'Completed';
+        } else if (apiStatus.includes('Cancelled') || apiStatus.includes('Cancel')) {
+            statusText = 'ပယ်ဖျက်လိုက်သည် ❌';
+            statusEmoji = '❌';
+            order.status = 'Cancelled';
+        } else if (apiStatus.includes('Partial')) {
+            statusText = 'တစ်စိတ်တစ်ပိုင်းပြီးစီး ⚠️';
+            statusEmoji = '⚠️';
+            order.status = 'Partial';
+        } else {
+            statusText = apiStatus;
+        }
+        order.updatedAt = new Date();
+        await order.save();
+
+        let reply = `<b>Order ID: <code>${orderId}</code></b>\n`;
+        reply += `🛒 ${order.serviceName}\n`;
+        reply += `🔗 ${order.link}\n`;
+        reply += `📊 ပမာဏ: ${order.quantity}\n`;
+        reply += `💰 ကုန်ကျငွေ: ${order.costMMK} MMK\n`;
+        reply += `📌 အခြေအနေ: ${statusEmoji} ${statusText}\n`;
+        reply += `📅 မှာရက်စွဲ: ${order.createdAt.toLocaleString('my-MM')}\n`;
+
+        const keyboard = [];
+        if (order.status === 'Pending') {
+            keyboard.push([{ text: '❌ Cancel Order', callback_data: `cancel_${orderId}` }]);
+        }
+
+        bot.sendMessage(chatId, reply, {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard }
+        });
+    } catch (err) {
+        console.error('Order status error:', err);
+        bot.sendMessage(chatId, '❌ Order status ရယူရန် မအောင်မြင်ပါ။');
+    }
+}
+
+// -------------------- CALLBACK QUERY HANDLERS --------------------
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+    const msgId = query.message.message_id;
+
+    if (isSpamming(chatId)) {
+        return bot.answerCallbackQuery(query.id, { text: 'ကျေးဇူးပြု၍ ခဏစောင့်ပါ...', show_alert: false });
+    }
+
+    // ---- Platform selection ----
+    if (data.startsWith('platform_')) {
+        const platform = data.split('_')[1];
+        let inlineKeyboard = [];
+
+        if (platform === 'tt') {
+            inlineKeyboard = [
+                [{ text: 'Like ❤️', callback_data: 'svc_tt_likes' }, { text: 'Views 👀', callback_data: 'svc_tt_views' }],
+                [{ text: 'Share 📍', callback_data: 'svc_tt_shares' }, { text: 'Save 💾', callback_data: 'svc_tt_saves' }],
+                [{ text: 'Followers 👤', callback_data: 'svc_tt_foll' }],
+                [{ text: '🔙 နောက်သို့', callback_data: 'back_to_platforms' }]
+            ];
+        } else if (platform === 'fb') {
+            inlineKeyboard = [
+                [{ text: 'Page/Profile Followers 👥', callback_data: 'svc_fb_foll' }],
+                [{ text: 'Post Likes 👍', callback_data: 'svc_fb_likes' }],
+                [{ text: 'Reactions 😍😡😢', callback_data: 'fb_reactions' }],
+                [{ text: '🔙 နောက်သို့', callback_data: 'back_to_platforms' }]
+            ];
+        } else if (platform === 'yt') {
+            inlineKeyboard = [
+                [{ text: 'Subscribers 📈', callback_data: 'svc_yt_subs' }],
+                [{ text: 'Views 👀', callback_data: 'svc_yt_views' }],
+                [{ text: '🔙 နောက်သို့', callback_data: 'back_to_platforms' }]
+            ];
+        } else if (platform === 'tg') {
+            inlineKeyboard = [
+                [{ text: 'Post Views 📨', callback_data: 'svc_tg_views' }],
+                [{ text: 'Members 👥', callback_data: 'svc_tg_mem' }],
+                [{ text: '🔙 နောက်သို့', callback_data: 'back_to_platforms' }]
+            ];
+        }
+
+        bot.editMessageText('ကျေးဇူးပြု၍ ဝန်ဆောင်မှုကို ရွေးချယ်ပါ:', {
+            chat_id: chatId,
+            message_id: msgId,
+            reply_markup: { inline_keyboard: inlineKeyboard }
+        });
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    // ---- Facebook reactions submenu ----
+    if (data === 'fb_reactions') {
+        const inlineKeyboard = [
+            [{ text: 'Love ❤️', callback_data: 'svc_fb_love' }, { text: 'Care 🤗', callback_data: 'svc_fb_care' }],
+            [{ text: 'Haha 😂', callback_data: 'svc_fb_haha' }, { text: 'Wow 😲', callback_data: 'svc_fb_wow' }],
+            [{ text: 'Sad 😥', callback_data: 'svc_fb_sad' }, { text: 'Angry 🤬', callback_data: 'svc_fb_angry' }],
+            [{ text: '🔙 နောက်သို့', callback_data: 'platform_fb' }]
+        ];
+        bot.editMessageText('Facebook Reaction ရွေးချယ်ပါ:', {
+            chat_id: chatId,
+            message_id: msgId,
+            reply_markup: { inline_keyboard: inlineKeyboard }
+        });
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    // ---- Back to platforms ----
+    if (data === 'back_to_platforms') {
+        bot.editMessageText('📌 မည်သည့် Platform အတွက် ဝန်ဆောင်မှု လိုအပ်ပါသလဲ?', {
+            chat_id: chatId,
+            message_id: msgId,
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🎬 TikTok', callback_data: 'platform_tt' }, { text: '📘 Facebook', callback_data: 'platform_fb' }],
+                    [{ text: '📺 YouTube', callback_data: 'platform_yt' }, { text: '✈️ Telegram', callback_data: 'platform_tg' }]
+                ]
+            }
+        });
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    // ---- Back to main menu (inline) ----
+    if (data === 'back_to_main') {
+        bot.deleteMessage(chatId, msgId);
+        const user = await getUser(chatId);
+        const welcome = `မင်္ဂလာပါ ${user.firstName || 'User'}!\nLuLu Social Boost မှ ကြိုဆိုပါတယ်ဗျာ။ ✨`;
+        bot.sendMessage(chatId, welcome, mainMenuKeyboard);
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    // ---- Service selection ----
+    if (data.startsWith('svc_')) {
+        const serviceKey = data.substring(4);
+        const service = SERVICES[serviceKey];
+        if (!service) {
+            bot.answerCallbackQuery(query.id, { text: 'Service not found', show_alert: true });
+            return;
+        }
+
+        userStates.set(chatId, { step: 'WAITING_LINK', serviceKey });
+        bot.sendMessage(chatId, `<b>📌 ${service.name}</b>\n⏱️ ပျမ်းမျှကြာချိန်: ${service.time}\n📦 အနည်းဆုံးအရေအတွက်: ${service.min}\n\n🔗 ကျေးဇူးပြု၍ သင့် ${serviceKey.split('_')[0].toUpperCase()} Link ကို ပေးပို့ပါ။`, {
+            parse_mode: 'HTML'
+        });
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    // ---- Order confirmation ----
+    if (data === 'confirm_order') {
+        const state = userStates.get(chatId);
+        if (!state || !state.serviceKey || !state.link || !state.qty) {
+            bot.sendMessage(chatId, '❌ Order information missing. Please start over.');
+            userStates.delete(chatId);
+            return bot.answerCallbackQuery(query.id);
+        }
+
+        const user = await getUser(chatId);
+        if (user.isBanned) {
+            return bot.sendMessage(chatId, '🚫 သင့်အကောင့်ကို ပိတ်ထားပါသည်။ Admin ကို ဆက်သွယ်ပါ။');
+        }
+
+        if (user.balance < state.totalCost) {
+            bot.sendMessage(chatId, `⚠️ လက်ကျန်ငွေ မလုံလောက်ပါ။\n💰 လက်ကျန်: ${user.balance} MMK\n💸 လိုအပ်ငွေ: ${state.totalCost} MMK\n\nကျေးဇူးပြု၍ ငွေဖြည့်ပါ။`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '💸 ငွေဖြည့်ရန်', callback_data: 'topup' }]
+                    ]
+                }
+            });
+            return bot.answerCallbackQuery(query.id);
+        }
+
+        const service = SERVICES[state.serviceKey];
+        const apiRes = await callSmmApi({
+            action: 'add',
+            service: service.id,
+            link: state.link,
+            quantity: state.qty
+        });
+
+        if (apiRes.error) {
+            bot.sendMessage(chatId, `❌ Order မအောင်မြင်ပါ။\nError: ${apiRes.error}`);
+            return bot.answerCallbackQuery(query.id);
+        }
+
+        if (apiRes.orderID) {
+            user.balance -= state.totalCost;
+            user.totalSpent += state.totalCost;
+            await user.save();
+
+            const newOrder = new Order({
+                orderId: apiRes.orderID.toString(),
+                telegramId: chatId,
+                serviceId: service.id,
+                serviceName: service.name,
+                link: state.link,
+                quantity: state.qty,
+                costUSD: (state.qty / 1000) * service.price,
+                costMMK: state.totalCost,
+                status: 'Pending'
+            });
+            await newOrder.save();
+
+            bot.sendMessage(chatId, `✅ Order အသစ်တင်ပြီးပါပြီ။\n🆔 Order ID: <code>${apiRes.orderID}</code>\n💰 ကုန်ကျငွေ: ${state.totalCost} MMK\n📊 လက်ကျန်: ${user.balance} MMK`, {
+                parse_mode: 'HTML',
+                reply_markup: mainMenuKeyboard
+            });
+            userStates.delete(chatId);
+        } else {
+            bot.sendMessage(chatId, '❌ Order တင်ရာတွင် ပြဿနာရှိသည်။ Admin ကို ဆက်သွယ်ပါ။');
+        }
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    // ---- Cancel order from status check ----
+    if (data.startsWith('cancel_')) {
+        const orderId = data.split('_')[1];
+        await cancelOrder(chatId, orderId, query);
+        return;
+    }
+
+    // ---- Order cancellation (setup) ----
+    if (data === 'cancel_setup') {
+        userStates.delete(chatId);
+        bot.editMessageText('❌ Order creation cancelled.', {
+            chat_id: chatId,
+            message_id: msgId
+        });
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    // ---- Topup: start screenshot flow ----
+    if (data === 'topup') {
+        await sendTopupInstructions(chatId);
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    if (data === 'topup_send_screenshot') {
+        userStates.set(chatId, { step: 'WAITING_TOPUP_SCREENSHOT' });
+        bot.sendMessage(chatId, '✅ ကျေးဇူးပြု၍ ငွေလွှဲပြီးသား Screenshot ကို ပို့ပေးပါ။');
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    if (data === 'topup_cancel') {
+        userStates.delete(chatId);
+        bot.deleteMessage(chatId, msgId);
+        bot.sendMessage(chatId, '❌ ငွေဖြည့်ခြင်းကို ပယ်ဖျက်လိုက်သည်။', mainMenuKeyboard);
+        bot.answerCallbackQuery(query.id);
+        return;
+    }
+
+    bot.answerCallbackQuery(query.id);
+});
+
+// -------------------- CANCEL ORDER FUNCTION --------------------
+async function cancelOrder(chatId, orderId, query = null) {
+    try {
+        const order = await Order.findOne({ orderId, telegramId: chatId });
+        if (!order) {
+            bot.sendMessage(chatId, '❌ Order not found.');
+            return;
+        }
+
+        if (order.status !== 'Pending') {
+            bot.sendMessage(chatId, `⚠️ Order ID <code>${orderId}</code> သည် လုပ်ဆောင်နေပြီဖြစ်၍ ပယ်ဖျက်၍ မရပါ။`, { parse_mode: 'HTML' });
+            return;
+        }
+
+        const apiRes = await callSmmApi({ action: 'cancel', orderID: orderId });
+        if (apiRes.error) {
+            bot.sendMessage(chatId, `❌ Cancel failed: ${apiRes.error}`);
+            return;
+        }
+
+        if (apiRes.status === 'Success' || apiRes.status === 'success') {
+            const user = await User.findOne({ telegramId: chatId });
+            user.balance += order.costMMK;
+            await user.save();
+
+            order.status = 'Cancelled';
+            order.updatedAt = new Date();
+            await order.save();
+
+            bot.sendMessage(chatId, `✅ Order ID <code>${orderId}</code> ကို ပယ်ဖျက်လိုက်ပါသည်။\n💰 ငွေပြန်အမ်းငွေ: ${order.costMMK} MMK`, { parse_mode: 'HTML' });
+        } else {
+            bot.sendMessage(chatId, '❌ Cancel request failed. API returned error.');
+        }
+    } catch (err) {
+        console.error('Cancel error:', err);
+        bot.sendMessage(chatId, '❌ Cancel လုပ်ရာတွင် အမှားရှိသည်။');
+    }
+}
+
+// -------------------- TOPUP INSTRUCTIONS --------------------
+async function sendTopupInstructions(chatId) {
+    const text = `💵 ငွေဖြည့်ရန် ညွှန်ကြားချက်များ
+
+💰 1$ = 4500 MMK
+(အနည်းဆုံး 1$ မှစဝယ်ပေးပါ)
+
+🏦 KBZ Pay
+09952537056
+Name: Joe Eaindray Thwe
+
+🏦 Wave Pay
+09882494488
+Name: Paing Zin Soe
+
+✅ ငွေလွှဲပြီးပါက Screenshot နှင့် Transaction ID (နောက်ဆုံးဂဏန်း ၄လုံး) ပို့ပေးပါ။
+
+⚠️ အရေးကြီးသတိပေးချက်
+• KBZ Pay တွင် "Note" ၌ dollar နှင့်ပတ်သက်သော စာသားမထည့်ရ
+• "payment" သို့မဟုတ် "for service" အစရှိသော စာသားသာထည့်ရန်
+• ငွေလွှဲ Screenshot မှ လက်ခံသူအမည်၊ ပမာဏ၊ ရက်စွဲများ ရှင်းလင်းစွာမြင်ရပါစေ`;
+
+    bot.sendMessage(chatId, text, {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '📤 Screenshot ပို့ရန်', callback_data: 'topup_send_screenshot' }],
+                [{ text: '❌ ပယ်ဖျက်ရန်', callback_data: 'topup_cancel' }]
+            ]
+        }
+    });
+}
+
+// -------------------- MESSAGE HANDLERS FOR FLOWS --------------------
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
     const state = userStates.get(chatId);
 
+    // ---- Link input for order ----
     if (state && state.step === 'WAITING_LINK') {
         const service = SERVICES[state.serviceKey];
-        if (!service.regex.test(text)) return bot.sendMessage(chatId, "❌ Link မှားယွင်းနေပါသည်။");
+        if (!service.regex.test(text)) {
+            return bot.sendMessage(chatId, '❌ Link မှားနေပါသည်။ ကျေးဇူးပြု၍ မှန်ကန်သော Link ကို ပြန်လည်ပေးပို့ပါ။');
+        }
         state.link = text;
         state.step = 'WAITING_QTY';
-        bot.sendMessage(chatId, `🔢 အရေအတွက် ရိုက်ထည့်ပါ (အနည်းဆုံး: ${service.min}):`);
-    } 
-    else if (state && state.step === 'WAITING_QTY') {
-        const qty = parseInt(text);
-        const service = SERVICES[state.serviceKey];
-        if (isNaN(qty) || qty < service.min) return bot.sendMessage(chatId, `❌ အနည်းဆုံး ${service.min} ရိုက်ပါ။`);
+        bot.sendMessage(chatId, `🔢 တိုးမြှင့်လိုသော အရေအတွက်ကို ရိုက်ထည့်ပေးပါ။\n📦 အနည်းဆုံး: ${service.min} | အများဆုံး: ${service.max.toLocaleString()}`);
+        userStates.set(chatId, state);
+        return;
+    }
 
-        const cost = Math.ceil((qty / 1000) * service.price * CONFIG.EXCHANGE_RATE);
+    // ---- Quantity input for order ----
+    if (state && state.step === 'WAITING_QTY') {
+        const service = SERVICES[state.serviceKey];
+        const qty = parseInt(text);
+        if (isNaN(qty) || qty < service.min || qty > service.max) {
+            return bot.sendMessage(chatId, `❌ အနည်းဆုံး ${service.min} နှင့် အများဆုံး ${service.max.toLocaleString()} ကြားသာ ရိုက်ထည့်ပါ။`);
+        }
+
+        const totalCost = calculateCost(service, qty);
         state.qty = qty;
-        state.totalCost = cost;
+        state.totalCost = totalCost;
         state.step = 'CONFIRM';
 
-        const summary = `<b>📋 Order အတည်ပြုရန်</b>\n\n🛒 Service: ${service.name}\n🔗 Link: ${state.link}\n📊 Qty: ${qty}\n💰 Cost: <b>${cost} MMK</b>`;
+        const summary = `<b>📋 သင်၏ Order အချုပ်အခြာ</b>\n\n` +
+            `🛒 Service: ${service.name}\n` +
+            `🔗 Link: ${state.link}\n` +
+            `📊 ပမာဏ: ${qty}\n` +
+            `💰 ကုန်ကျငွေ: <b>${totalCost} MMK</b>\n` +
+            `⏱️ ပျမ်းမျှကြာချိန်: ${service.time}\n\n` +
+            `ဆက်သွားရန် ✅ ကိုနှိပ်ပါ။`;
+
         bot.sendMessage(chatId, summary, {
             parse_mode: 'HTML',
             reply_markup: {
-                inline_keyboard: [[{ text: '✅ Confirm', callback_data: 'confirm_order' }, { text: '❌ Cancel', callback_data: 'cancel_setup' }]]
+                inline_keyboard: [
+                    [{ text: '✅ ဆက်သွားရန်', callback_data: 'confirm_order' },
+                     { text: '❌ ပယ်ဖျက်ရန်', callback_data: 'cancel_setup' }]
+                ]
             }
         });
+        userStates.set(chatId, state);
+        return;
+    }
+
+    // ---- Screenshot upload for topup ----
+    if (state && state.step === 'WAITING_TOPUP_SCREENSHOT' && msg.photo) {
+        const fileId = msg.photo[msg.photo.length - 1].file_id;
+        state.screenshotFileId = fileId;
+        state.step = 'WAITING_TOPUP_TRANS_ID';
+        userStates.set(chatId, state);
+        bot.sendMessage(chatId, '✅ Screenshot လက်ခံရရှိပါပြီ။\n\nကျေးဇူးပြု၍ *Transaction ID* (နောက်ဆုံးဂဏန်း ၄လုံး) ကို ရိုက်ထည့်ပေးပါ။', { parse_mode: 'Markdown' });
+        return;
+    }
+
+    // ---- Transaction ID input ----
+    if (state && state.step === 'WAITING_TOPUP_TRANS_ID' && text) {
+        if (text.length !== 4 || !/^\d{4}$/.test(text)) {
+            return bot.sendMessage(chatId, '❌ Transaction ID သည် နောက်ဆုံးဂဏန်း ၄လုံး ဖြစ်ရပါမည်။ ပြန်ရိုက်ပါ။');
+        }
+        state.transactionId = text;
+        state.step = 'WAITING_TOPUP_AMOUNT';
+        userStates.set(chatId, state);
+        bot.sendMessage(chatId, '✅ Transaction ID လက်ခံရရှိပါပြီ။\n\nကျေးဇူးပြု၍ *ငွေလွှဲထားသော ပမာဏ (MMK)* ကို ရိုက်ထည့်ပေးပါ။\nဥပမာ: 4500', { parse_mode: 'Markdown' });
+        return;
+    }
+
+    // ---- Amount input ----
+    if (state && state.step === 'WAITING_TOPUP_AMOUNT' && text) {
+        const amount = parseInt(text);
+        if (isNaN(amount) || amount < CONFIG.MIN_TOPUP_AMOUNT) {
+            return bot.sendMessage(chatId, `❌ အနည်းဆုံး ${CONFIG.MIN_TOPUP_AMOUNT} MMK မှ စတင်ဖြည့်နိုင်ပါသည်။`);
+        }
+        state.amountMMK = amount;
+        const user = await getUser(chatId);
+        const topup = new Topup({
+            userId: chatId,
+            username: user.username,
+            amountMMK: amount,
+            screenshotFileId: state.screenshotFileId,
+            transactionId: state.transactionId
+        });
+        await topup.save();
+
+        const caption = `💰 ငွေဖြည့်လျှောက်ထားချက်\n\n` +
+            `👤 User: ${user.firstName || 'N/A'} (@${user.username || 'no_username'})\n` +
+            `🆔 ID: <code>${chatId}</code>\n` +
+            `💵 ပမာဏ: ${amount} MMK\n` +
+            `🔢 Transaction ID: ${state.transactionId}\n` +
+            `💰 လက်ကျန် (မဖြည့်မီ): ${user.balance} MMK\n\n` +
+            `👉 အတည်ပြုရန်:\n<code>/approve ${chatId} ${amount}</code>\n` +
+            `❌ ပယ်ဖျက်ရန်:\n<code>/reject ${chatId}</code>`;
+
+        const adminMsg = await bot.sendPhoto(CONFIG.ADMIN_ID, state.screenshotFileId, {
+            caption,
+            parse_mode: 'HTML'
+        });
+
+        topup.adminMessageId = adminMsg.message_id;
+        await topup.save();
+
+        bot.sendMessage(chatId, `✅ သင့်ငွေဖြည့်လွှာကို Admin ထံသို့ ပေးပို့ထားပါပြီ။\n\nအတည်ပြုချက် ရရှိပါက သင့်အကောင့်သို့ *${amount} MMK* ထည့်သွင်းပေးပါမည်။\nကျေးဇူးပြု၍ စောင့်ဆိုင်းပေးပါ။\nအကူအညီလိုအပ်ပါက admin-@${CONFIG.OWNER_USERNAME} သို့ဆက်သွယ်ပေးပါ။`, {
+            parse_mode: 'Markdown',
+            reply_markup: mainMenuKeyboard
+        });
+
+        userStates.delete(chatId);
+        return;
     }
 });
 
-// Balance check
-bot.onText(/💰 လက်ကျန်ငွေစစ်ရန်/, async (msg) => {
-    const user = await User.findOne({ telegramId: msg.chat.id });
-    bot.sendMessage(msg.chat.id, `💰 လက်ကျန်ငွေ: <b>${user.balance} MMK</b>`, { parse_mode: 'HTML' });
+// -------------------- ADMIN COMMANDS --------------------
+bot.onText(/^\/approve (\d+) (\d+)$/, async (msg, match) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const userId = parseInt(match[1]);
+    const amount = parseInt(match[2]);
+
+    const user = await User.findOne({ telegramId: userId });
+    if (!user) {
+        return bot.sendMessage(msg.chat.id, '❌ User not found.');
+    }
+
+    user.balance += amount;
+    await user.save();
+
+    await Topup.findOneAndUpdate(
+        { userId, amountMMK: amount, status: 'Pending' },
+        { status: 'Approved' }
+    );
+
+    bot.sendMessage(userId, `✅ သင့်အကောင့်သို့ ${amount} MMK ထည့်သွင်းပြီးပါပြီ။\n💰 လက်ကျန်: ${user.balance} MMK`, mainMenuKeyboard);
+    bot.sendMessage(msg.chat.id, `✅ Approved: ${amount} MMK added to user ${userId}.`);
 });
 
-// Order History
-bot.onText(/📜 Order History/, async (msg) => {
-    const orders = await Order.find({ telegramId: msg.chat.id }).sort({ timestamp: -1 }).limit(5);
-    if (orders.length === 0) return bot.sendMessage(msg.chat.id, "မှတ်တမ်းမရှိသေးပါ။");
-    let txt = "<b>📜 သင်၏ နောက်ဆုံး Order များ</b>\n\n";
-    orders.forEach(o => { txt += `🆔 <code>${o.orderId}</code> - ${o.status}\n`; });
-    bot.sendMessage(msg.chat.id, txt, { parse_mode: 'HTML' });
+bot.onText(/^\/reject (\d+)$/, async (msg, match) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const userId = parseInt(match[1]);
+    const user = await User.findOne({ telegramId: userId });
+    if (!user) {
+        return bot.sendMessage(msg.chat.id, '❌ User not found.');
+    }
+
+    await Topup.findOneAndUpdate(
+        { userId, status: 'Pending' },
+        { status: 'Rejected' }
+    );
+
+    bot.sendMessage(userId, `❌ သင့်ငွေဖြည့်လွှာကို ပယ်ဖျက်လိုက်ပါသည်။\nအကူအညီအတွက် admin-@${CONFIG.OWNER_USERNAME} ကို ဆက်သွယ်ပါ။`, mainMenuKeyboard);
+    bot.sendMessage(msg.chat.id, `✅ Rejected: User ${userId}.`);
 });
 
-console.log("🚀 Bot is running smoothly...");
+bot.onText(/^\/ban (\d+)$/, async (msg, match) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const userId = parseInt(match[1]);
+    const user = await User.findOneAndUpdate({ telegramId: userId }, { isBanned: true });
+    if (user) {
+        bot.sendMessage(userId, '🚫 သင့်အကောင့်ကို ပိတ်ထားပါသည်။ Admin ကို ဆက်သွယ်ပါ။');
+        bot.sendMessage(msg.chat.id, `✅ User ${userId} banned.`);
+    } else {
+        bot.sendMessage(msg.chat.id, '❌ User not found.');
+    }
+});
+
+bot.onText(/^\/unban (\d+)$/, async (msg, match) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const userId = parseInt(match[1]);
+    const user = await User.findOneAndUpdate({ telegramId: userId }, { isBanned: false });
+    if (user) {
+        bot.sendMessage(userId, '✅ သင့်အကောင့်ကို ပြန်ဖွင့်ပေးလိုက်ပါပြီ။', mainMenuKeyboard);
+        bot.sendMessage(msg.chat.id, `✅ User ${userId} unbanned.`);
+    } else {
+        bot.sendMessage(msg.chat.id, '❌ User not found.');
+    }
+});
+
+bot.onText(/^\/setbalance (\d+) (\d+)$/, async (msg, match) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const userId = parseInt(match[1]);
+    const newBalance = parseInt(match[2]);
+    const user = await User.findOneAndUpdate({ telegramId: userId }, { balance: newBalance }, { new: true });
+    if (user) {
+        bot.sendMessage(userId, `💰 Admin မှ သင့်လက်ကျန်ငွေကို ပြင်ဆင်လိုက်သည်။\nလက်ကျန်: ${newBalance} MMK`, mainMenuKeyboard);
+        bot.sendMessage(msg.chat.id, `✅ Balance set to ${newBalance} MMK for user ${userId}.`);
+    } else {
+        bot.sendMessage(msg.chat.id, '❌ User not found.');
+    }
+});
+
+bot.onText(/^\/broadcast (.+)/, async (msg, match) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const message = match[1];
+    const users = await User.find({}, 'telegramId');
+    let success = 0, fail = 0;
+    for (const user of users) {
+        try {
+            await bot.sendMessage(user.telegramId, `📢 Admin Message:\n\n${message}`, mainMenuKeyboard);
+            success++;
+        } catch (err) {
+            fail++;
+        }
+    }
+    bot.sendMessage(msg.chat.id, `✅ Broadcast completed.\n✅ Sent: ${success}\n❌ Failed: ${fail}`);
+});
+
+bot.onText(/^\/stats$/, async (msg) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const totalUsers = await User.countDocuments();
+    const totalOrders = await Order.countDocuments();
+    const totalSpent = await Order.aggregate([{ $group: { _id: null, total: { $sum: '$costMMK' } } }]);
+    const pendingTopups = await Topup.countDocuments({ status: 'Pending' });
+    const apiBalance = await callSmmApi({ action: 'balance' });
+
+    const stats = `📊 Bot Statistics\n\n` +
+        `👥 Total Users: ${totalUsers}\n` +
+        `📦 Total Orders: ${totalOrders}\n` +
+        `💰 Total Spent (MMK): ${totalSpent[0]?.total.toLocaleString() || 0}\n` +
+        `⏳ Pending Topups: ${pendingTopups}\n` +
+        `💳 API Balance: ${apiBalance.balance || 'N/A'} ${apiBalance.currency || 'USD'}`;
+
+    bot.sendMessage(msg.chat.id, stats);
+});
+
+bot.onText(/^\/admin$/, (msg) => {
+    if (!isAdmin(msg.chat.id)) return;
+    const help = `🔐 Admin Commands\n\n` +
+        `/approve [user_id] [amount] - Approve topup\n` +
+        `/reject [user_id] - Reject topup\n` +
+        `/ban [user_id] - Ban user\n` +
+        `/unban [user_id] - Unban user\n` +
+        `/setbalance [user_id] [amount] - Set balance\n` +
+        `/broadcast [message] - Send to all users\n` +
+        `/stats - View bot statistics`;
+    bot.sendMessage(msg.chat.id, help);
+});
+
+// -------------------- ERROR HANDLING --------------------
+bot.on('polling_error', (error) => {
+    console.error('Polling error:', error);
+});
+
+// -------------------- STARTUP --------------------
+console.log('🤖 LuLu Social Boost Bot is running...');
