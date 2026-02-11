@@ -25,7 +25,7 @@ const CONFIG = {
     ADMIN_ID: 7072739469, 
     OWNER_USERNAME: 'Rowan_Elliss',
     
-    API_URL: 'https://brothersmm.com/api',
+    API_URL: 'https://www.brothersmm.com/api',
     API_KEY: '72dd1d7b0ade683680631a027ff813d0a7d11b01',
     
     MONGO_URL: 'mongodb+srv://paingzinsoe:AGLMG7iArSBqPLdt@cluster0.dzaellc.mongodb.net/lulu_social_boost?retryWrites=true&w=majority',
