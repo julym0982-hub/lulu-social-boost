@@ -1,6 +1,6 @@
 // ===================================================
 // LuLu Social Boost - Vercel Serverless Version
-// Webhook + MongoDB Caching | All Features Included
+// Webhook + MongoDB Caching | Complete & Fixed
 // ===================================================
 
 require('dotenv').config();
@@ -8,7 +8,6 @@ const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
-const crypto = require('crypto');
 
 // -------------------- CONFIG --------------------
 const CONFIG = {
@@ -84,7 +83,7 @@ const User = mongoose.model('User', userSchema);
 const Order = mongoose.model('Order', orderSchema);
 const Topup = mongoose.model('Topup', topupSchema);
 
-// -------------------- SERVICES (Your Provided IDs) --------------------
+// -------------------- SERVICES --------------------
 const SERVICES = {
   // TikTok
   tt_likes:   { id: 87129, name: "TikTok Likes [HQ]", price: 0.2237, min: 10, max: 100000, time: "20 mins", regex: /tiktok\.com/, platform: 'tt' },
@@ -110,23 +109,25 @@ const SERVICES = {
 };
 
 // -------------------- BOT SETUP (Webhook) --------------------
-const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: false }); // polling false for webhook
+const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: false });
 const app = express();
 app.use(express.json());
 
-// Set webhook on startup (only once)
-async function setWebhook() {
+// ================ 🟢 CRITICAL: WEBHOOK ROUTE ================
+app.post('/webhook', (req, res) => {
   try {
-    await bot.setWebHook(`${CONFIG.WEBHOOK_URL}/webhook`);
-    console.log('✅ Webhook set to:', CONFIG.WEBHOOK_URL);
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Webhook error:', err);
+    console.error('Webhook error:', err);
+    res.sendStatus(500);
   }
-}
+});
+// ============================================================
 
-// -------------------- SPAM PROTECTION (in-memory) --------------------
+// -------------------- SPAM PROTECTION --------------------
 const userCooldown = new Map();
-const userStates = new Map(); // for multi-step dialogs
+const userStates = new Map();
 
 function isSpamming(chatId) {
   const now = Date.now();
@@ -136,7 +137,7 @@ function isSpamming(chatId) {
   return false;
 }
 
-// -------------------- SMM API CALL (with exact param mapping) --------------------
+// -------------------- SMM API CALL --------------------
 async function callSmmApi(params) {
   try {
     const payload = { apiKey: CONFIG.API_KEY };
@@ -187,15 +188,8 @@ const mainKeyboard = {
   }
 };
 
-// -------------------- WEBHOOK ENDPOINT --------------------
-app.post('/webhook', (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
 // ==================== BOT LOGIC ====================
-
-// ---- /start ----
+// -------------------- /start --------------------
 bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, async (msg) => {
   if (isSpamming(msg.chat.id)) return;
   const user = await findOrCreateUser(msg.chat.id, msg);
@@ -206,7 +200,7 @@ bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, asyn
   );
 });
 
-// ---- Service Menu ----
+// -------------------- Service Menu --------------------
 bot.onText(/📱 ရရှိနိုင်သော Service များ/, (msg) => {
   if (isSpamming(msg.chat.id)) return;
   bot.sendMessage(msg.chat.id,
@@ -222,7 +216,7 @@ bot.onText(/📱 ရရှိနိုင်သော Service များ/, (ms
   );
 });
 
-// ---- Balance Check ----
+// -------------------- Balance Check --------------------
 bot.onText(/💰 လက်ကျန်ငွေစစ်ရန်/, async (msg) => {
   if (isSpamming(msg.chat.id)) return;
   const user = await findOrCreateUser(msg.chat.id);
@@ -239,7 +233,7 @@ bot.onText(/💰 လက်ကျန်ငွေစစ်ရန်/, async (msg) 
   );
 });
 
-// ---- Topup Instructions (Text & Callback) ----
+// -------------------- Topup Instructions --------------------
 bot.onText(/💸 ငွေဖြည့်ရန်/, async (msg) => {
   if (isSpamming(msg.chat.id)) return;
   await sendTopupInstructions(msg.chat.id);
@@ -276,7 +270,7 @@ Name: Paing Zin Soe
   });
 }
 
-// ---- FAQ ----
+// -------------------- FAQ --------------------
 bot.onText(/Faq⁉️/, (msg) => {
   if (isSpamming(msg.chat.id)) return;
   const faq = `⁉️ မကြာခဏမေးလေ့ရှိသော မေးခွန်းများ (FAQ)
@@ -315,7 +309,7 @@ Screenshot သည် ရှင်းလင်းပြတ်သားပြီ�
   });
 });
 
-// ---- Order History ----
+// -------------------- Order History --------------------
 bot.onText(/📜 Order History/, async (msg) => {
   if (isSpamming(msg.chat.id)) return;
   await connectDB();
@@ -334,7 +328,7 @@ bot.onText(/📜 Order History/, async (msg) => {
   bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
 });
 
-// ==================== CALLBACK QUERIES ====================
+// ==================== CALLBACK QUERY HANDLER ====================
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -386,7 +380,7 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
-  // ----- Facebook Reactions Submenu -----
+  // ----- Facebook Reactions -----
   if (data === 'fb_reactions') {
     const inlineKeyboard = [
       [{ text: 'Love ❤️', callback_data: 'svc_fb_love' }, { text: 'Care 🤗', callback_data: 'svc_fb_care' }],
@@ -488,7 +482,6 @@ bot.on('callback_query', async (query) => {
     }
 
     if (apiRes.orderID) {
-      // Deduct balance & create order
       user.balance -= state.totalCost;
       user.totalSpent += state.totalCost;
       await user.save();
@@ -603,13 +596,13 @@ async function cancelOrder(chatId, orderId, query = null) {
   }
 }
 
-// ==================== MESSAGE HANDLERS (Text, Photo, etc) ====================
+// ==================== MESSAGE HANDLERS ====================
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   const state = userStates.get(chatId);
 
-  // --- Link input for order ---
+  // ----- Link input for order -----
   if (state && state.step === 'WAITING_LINK' && text) {
     const service = SERVICES[state.serviceKey];
     if (!service.regex.test(text)) {
@@ -624,7 +617,7 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // --- Quantity input for order ---
+  // ----- Quantity input for order -----
   if (state && state.step === 'WAITING_QTY' && text) {
     const service = SERVICES[state.serviceKey];
     const qty = parseInt(text);
@@ -660,7 +653,7 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // --- Order ID input (status check) ---
+  // ----- Order ID input (status check) -----
   if (text && /^\d{5,}$/.test(text)) {
     await connectDB();
     const order = await Order.findOne({ orderId: text, telegramId: chatId });
@@ -670,7 +663,7 @@ bot.on('message', async (msg) => {
     }
   }
 
-  // --- Screenshot upload for topup ---
+  // ----- Screenshot upload for topup -----
   if (state && state.step === 'WAITING_TOPUP_SCREENSHOT' && msg.photo) {
     const fileId = msg.photo[msg.photo.length - 1].file_id;
     state.screenshotFileId = fileId;
@@ -683,7 +676,7 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // --- Transaction ID input ---
+  // ----- Transaction ID input -----
   if (state && state.step === 'WAITING_TOPUP_TRANS_ID' && text) {
     if (!/^\d{4}$/.test(text)) {
       return bot.sendMessage(chatId, '❌ Transaction ID သည် နောက်ဆုံးဂဏန်း ၄လုံး ဖြစ်ရပါမည်။ ပြန်ရိုက်ပါ။');
@@ -698,7 +691,7 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // --- Amount input for topup ---
+  // ----- Amount input for topup -----
   if (state && state.step === 'WAITING_TOPUP_AMOUNT' && text) {
     const amount = parseInt(text);
     if (isNaN(amount) || amount < CONFIG.MIN_TOPUP) {
@@ -928,10 +921,17 @@ bot.onText(/^\/admin$/, (msg) => {
   bot.sendMessage(msg.chat.id, help);
 });
 
-// ==================== START SERVER ====================
+// ==================== HEALTH CHECK ====================
 app.get('/', (req, res) => res.send('LuLu Social Boost Bot is running.'));
+
+// ==================== START SERVER ====================
 app.listen(CONFIG.PORT, async () => {
   console.log(`🚀 Server running on port ${CONFIG.PORT}`);
   await connectDB();
-  await setWebhook();
+  try {
+    await bot.setWebHook(`${CONFIG.WEBHOOK_URL}`);
+    console.log('✅ Webhook set to:', CONFIG.WEBHOOK_URL);
+  } catch (err) {
+    console.error('❌ Webhook setup failed:', err);
+  }
 });
