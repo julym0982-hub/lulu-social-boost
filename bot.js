@@ -1,6 +1,6 @@
 // ===================================================
-// LuLu Social Boost - Vercel Serverless Version
-// Webhook + MongoDB Caching | Complete & Fixed
+// LuLu Social Boost - Vercel Serverless (FULLY FIXED)
+// Webhook + MongoDB + All Handlers Working
 // ===================================================
 
 require('dotenv').config();
@@ -24,7 +24,25 @@ const CONFIG = {
   PORT: process.env.PORT || 3000
 };
 
-// -------------------- MONGOOSE CACHING (Vercel) --------------------
+// -------------------- BOT SETUP --------------------
+const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: false });
+const app = express();
+app.use(express.json());
+
+// ================ 🟢 CRITICAL: WEBHOOK ROUTE WITH DEBUG ================
+app.post('/webhook', (req, res) => {
+  try {
+    console.log('📥 Webhook received:', JSON.stringify(req.body).substring(0, 200));
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Webhook error:', err.message);
+    res.sendStatus(500);
+  }
+});
+// ======================================================================
+
+// -------------------- MONGOOSE CACHING --------------------
 let cachedDb = null;
 async function connectDB() {
   if (cachedDb) return cachedDb;
@@ -53,6 +71,7 @@ const userSchema = new mongoose.Schema({
   totalSpent: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now }
 });
+const User = mongoose.model('User', userSchema);
 
 const orderSchema = new mongoose.Schema({
   orderId: { type: String, required: true, unique: true },
@@ -67,6 +86,7 @@ const orderSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: Date
 });
+const Order = mongoose.model('Order', orderSchema);
 
 const topupSchema = new mongoose.Schema({
   userId: Number,
@@ -78,20 +98,15 @@ const topupSchema = new mongoose.Schema({
   adminMessageId: Number,
   createdAt: { type: Date, default: Date.now }
 });
-
-const User = mongoose.model('User', userSchema);
-const Order = mongoose.model('Order', orderSchema);
 const Topup = mongoose.model('Topup', topupSchema);
 
 // -------------------- SERVICES --------------------
 const SERVICES = {
-  // TikTok
   tt_likes:   { id: 87129, name: "TikTok Likes [HQ]", price: 0.2237, min: 10, max: 100000, time: "20 mins", regex: /tiktok\.com/, platform: 'tt' },
   tt_views:   { id: 87132, name: "TikTok Views", price: 0.0078, min: 100, max: 500000000, time: "11 mins", regex: /tiktok\.com/, platform: 'tt' },
   tt_shares:  { id: 87089, name: "TikTok Video Shares", price: 0.0848, min: 10, max: 10000000, time: "12 mins", regex: /tiktok\.com/, platform: 'tt' },
   tt_saves:   { id: 7090, name: "TikTok Saves", price: 0.015, min: 10, max: 2147482647, time: "26 mins", regex: /tiktok\.com/, platform: 'tt' },
   tt_foll:    { id: 87117, name: "TikTok Followers", price: 0.9188, min: 50, max: 100000, time: "30 mins", regex: /tiktok\.com/, platform: 'tt' },
-  // Facebook
   fb_foll:    { id: 86930, name: "FB Page/Profile Followers", price: 0.4298, min: 100, max: 100000, time: "31 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
   fb_likes:   { id: 87072, name: "FB Post Likes", price: 0.264, min: 10, max: 1000000, time: "27 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
   fb_love:    { id: 86458, name: "FB Love ❤️", price: 0.1689, min: 10, max: 100000, time: "40 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
@@ -100,30 +115,11 @@ const SERVICES = {
   fb_wow:     { id: 86460, name: "FB Wow 😲", price: 0.6457, min: 10, max: 500000, time: "6 hrs", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
   fb_sad:     { id: 86462, name: "FB Sad 😥", price: 0.6457, min: 10, max: 500000, time: "1 hr", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
   fb_angry:   { id: 86463, name: "FB Angry 🤬", price: 0.6457, min: 10, max: 500000, time: "47 mins", regex: /facebook\.com|fb\.watch/, platform: 'fb' },
-  // YouTube
   yt_subs:    { id: 86560, name: "YouTube Subscribers", price: 22.7526, min: 100, max: 10000, time: "74 hrs", regex: /youtube\.com|youtu\.be/, platform: 'yt' },
   yt_views:   { id: 86562, name: "YouTube Views HQ", price: 1.8732, min: 100, max: 10000000, time: "5 hrs", regex: /youtube\.com|youtu\.be/, platform: 'yt' },
-  // Telegram
   tg_views:   { id: 86620, name: "Telegram Post View", price: 0.0499, min: 10, max: 2147483647, time: "14 mins", regex: /t\.me/, platform: 'tg' },
   tg_mem:     { id: 86629, name: "Telegram Members", price: 0.948, min: 10, max: 100000, time: "31 mins", regex: /t\.me/, platform: 'tg' }
 };
-
-// -------------------- BOT SETUP (Webhook) --------------------
-const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: false });
-const app = express();
-app.use(express.json());
-
-// ================ 🟢 CRITICAL: WEBHOOK ROUTE ================
-app.post('/webhook', (req, res) => {
-  try {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('Webhook error:', err);
-    res.sendStatus(500);
-  }
-});
-// ============================================================
 
 // -------------------- SPAM PROTECTION --------------------
 const userCooldown = new Map();
@@ -168,8 +164,8 @@ async function findOrCreateUser(telegramId, msg = null) {
   if (!user && msg) {
     user = new User({
       telegramId,
-      username: msg.from.username,
-      firstName: msg.from.first_name
+      username: msg.from?.username,
+      firstName: msg.from?.first_name
     });
     await user.save();
   }
@@ -189,8 +185,8 @@ const mainKeyboard = {
 };
 
 // ==================== BOT LOGIC ====================
-// -------------------- /start --------------------
 bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, async (msg) => {
+  console.log(`📨 /start from ${msg.chat.id}`);
   if (isSpamming(msg.chat.id)) return;
   const user = await findOrCreateUser(msg.chat.id, msg);
   userStates.delete(msg.chat.id);
@@ -200,8 +196,8 @@ bot.onText(/\/start|🔙 နောက်ပြန်သွားရန်/, asyn
   );
 });
 
-// -------------------- Service Menu --------------------
 bot.onText(/📱 ရရှိနိုင်သော Service များ/, (msg) => {
+  console.log(`📨 Services menu from ${msg.chat.id}`);
   if (isSpamming(msg.chat.id)) return;
   bot.sendMessage(msg.chat.id,
     '📌 မည်သည့် Platform အတွက် ဝန်ဆောင်မှု လိုအပ်ပါသလဲ?\n\nအောက်ပါ Platform များမှ ရွေးချယ်နိုင်ပါသည်:',
@@ -216,8 +212,8 @@ bot.onText(/📱 ရရှိနိုင်သော Service များ/, (ms
   );
 });
 
-// -------------------- Balance Check --------------------
 bot.onText(/💰 လက်ကျန်ငွေစစ်ရန်/, async (msg) => {
+  console.log(`📨 Balance check from ${msg.chat.id}`);
   if (isSpamming(msg.chat.id)) return;
   const user = await findOrCreateUser(msg.chat.id);
   bot.sendMessage(msg.chat.id,
@@ -233,8 +229,8 @@ bot.onText(/💰 လက်ကျန်ငွေစစ်ရန်/, async (msg) 
   );
 });
 
-// -------------------- Topup Instructions --------------------
 bot.onText(/💸 ငွေဖြည့်ရန်/, async (msg) => {
+  console.log(`📨 Topup request from ${msg.chat.id}`);
   if (isSpamming(msg.chat.id)) return;
   await sendTopupInstructions(msg.chat.id);
 });
@@ -270,8 +266,8 @@ Name: Paing Zin Soe
   });
 }
 
-// -------------------- FAQ --------------------
 bot.onText(/Faq⁉️/, (msg) => {
+  console.log(`📨 FAQ from ${msg.chat.id}`);
   if (isSpamming(msg.chat.id)) return;
   const faq = `⁉️ မကြာခဏမေးလေ့ရှိသော မေးခွန်းများ (FAQ)
 
@@ -309,8 +305,8 @@ Screenshot သည် ရှင်းလင်းပြတ်သားပြီ�
   });
 });
 
-// -------------------- Order History --------------------
 bot.onText(/📜 Order History/, async (msg) => {
+  console.log(`📨 Order history from ${msg.chat.id}`);
   if (isSpamming(msg.chat.id)) return;
   await connectDB();
   const orders = await Order.find({ telegramId: msg.chat.id })
@@ -333,6 +329,8 @@ bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
   const msgId = query.message.message_id;
+
+  console.log(`📨 Callback from ${chatId}: ${data}`);
 
   if (isSpamming(chatId)) {
     return bot.answerCallbackQuery(query.id, { text: 'ကျေးဇူးပြု၍ ခဏစောင့်ပါ...', show_alert: false });
@@ -935,3 +933,6 @@ app.listen(CONFIG.PORT, async () => {
     console.error('❌ Webhook setup failed:', err);
   }
 });
+
+// ✅ Vercel Serverless Export (အရေးကြီးဆုံး)
+module.exports = app;
